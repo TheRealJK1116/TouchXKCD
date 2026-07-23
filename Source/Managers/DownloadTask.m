@@ -1,6 +1,6 @@
 #import "DownloadTask.h"
 
-@interface DownloadTask ()
+@interface DownloadTask () <NSURLConnectionDataDelegate, NSURLConnectionDelegate>
 @property (nonatomic, strong) NSURLConnection *connection;
 @property (nonatomic, strong) NSMutableData *responseData;
 @property (nonatomic, assign) long long expectedContentLength;
@@ -36,12 +36,22 @@
     if (![fm fileExistsAtPath:cacheDir]) {
         [fm createDirectoryAtPath:cacheDir withIntermediateDirectories:YES attributes:nil error:nil];
     }
-    NSString *filename = [NSString stringWithFormat:@"%ld.jpg", (long)comicNumber];
+    // Preserve original extension if available from imageURL
+    NSString *ext = @"jpg";
+    if (self.imageURL) {
+        NSString *urlExt = [[self.imageURL lastPathComponent] pathExtension];
+        if (urlExt && urlExt.length > 0) ext = urlExt;
+    }
+    NSString *filename = [NSString stringWithFormat:@"%ld.%@", (long)comicNumber, ext];
     return [cacheDir stringByAppendingPathComponent:filename];
 }
 
 - (void)startDownload {
-    if (self.status == DownloadStatusCompleted || self.status == DownloadStatusFailed) {
+    if (self.status == DownloadStatusCompleted) {
+        return;
+    }
+    // If previously failed and retries exhausted, don't auto-start
+    if (self.status == DownloadStatusFailed && self.retryCount >= self.maxRetries) {
         return;
     }
     self.status = DownloadStatusDownloading;
@@ -51,24 +61,53 @@
     self.downloadedLength = 0;
 
     if (!self.imageURL || self.imageURL.length == 0) {
-        self.imageURL = [NSString stringWithFormat:@"https://imgs.xkcd.com/comics/%ld.jpg", (long)self.comicNumber];
+        self.imageURL = [NSString stringWithFormat:@"https://imgs.xkcd.com/comics/%ld.png", (long)self.comicNumber];
     }
     NSURL *url = [NSURL URLWithString:self.imageURL];
+    if (!url) {
+        NSLog(@"[DownloadTask] Invalid URL %@ for comic %ld", self.imageURL, (long)self.comicNumber);
+        [self handleFailure];
+        return;
+    }
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:60.0];
     [request setValue:@"TouchXKCD/1.0 (iPod touch; iOS 6.1.6)" forHTTPHeaderField:@"User-Agent"];
     self.connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO];
     if (self.connection) {
         [self.connection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
         [self.connection start];
+    } else {
+        [self handleFailure];
+    }
+}
+
+- (void)handleFailure {
+    self.retryCount += 1;
+    if (self.retryCount < self.maxRetries) {
+        self.status = DownloadStatusPending;
+        self.progress = 0.0f;
+        // Exponential backoff: 2, 4, 8 seconds
+        NSTimeInterval delay = 2.0 * (1 << (self.retryCount - 1));
+        if (delay > 30) delay = 30;
+        [self performSelector:@selector(startDownload) withObject:nil afterDelay:delay];
+        return;
+    }
+    self.status = DownloadStatusFailed;
+    self.connection = nil;
+    if ([self.delegate respondsToSelector:@selector(downloadTaskDidFail:)]) {
+        [self.delegate downloadTaskDidFail:self];
     }
 }
 
 - (void)cancel {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(startDownload) object:nil];
     [self.connection cancel];
     self.connection = nil;
-    self.status = DownloadStatusFailed;
-    if ([self.delegate respondsToSelector:@selector(downloadTaskDidFail:)]) {
-        [self.delegate downloadTaskDidFail:self];
+    // Only mark as failed if not already completed
+    if (self.status != DownloadStatusCompleted) {
+        self.status = DownloadStatusFailed;
+        if ([self.delegate respondsToSelector:@selector(downloadTaskDidFail:)]) {
+            [self.delegate downloadTaskDidFail:self];
+        }
     }
 }
 
@@ -83,7 +122,18 @@
     self.expectedContentLength = [response expectedContentLength];
     self.downloadedLength = 0;
     if (self.expectedContentLength <= 0) {
-        self.expectedContentLength = 1;
+        // If server doesn't provide length, assume 1 to avoid div0, progress will be indeterminate but we estimate
+        self.expectedContentLength = 1024 * 1024; // 1MB guess
+    }
+    if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+        NSInteger code = [(NSHTTPURLResponse *)response statusCode];
+        if (code >= 400) {
+            NSLog(@"[DownloadTask] HTTP %ld for comic %ld URL %@", (long)code, (long)self.comicNumber, self.imageURL);
+            if (code == 404) {
+                // Don't retry 404
+                self.retryCount = self.maxRetries;
+            }
+        }
     }
 }
 
@@ -92,6 +142,7 @@
     self.downloadedLength += [data length];
     float progress = (float)self.downloadedLength / (float)self.expectedContentLength;
     if (progress > 1.0f) progress = 1.0f;
+    if (progress < 0) progress = 0;
     self.progress = progress;
     if ([self.delegate respondsToSelector:@selector(downloadTask:didUpdateProgress:)]) {
         [self.delegate downloadTask:self didUpdateProgress:self.progress];
@@ -104,26 +155,30 @@
     self.progress = 1.0f;
     self.completedAt = [NSDate date];
     NSString *localPath = [self cachedImagePathForComic:self.comicNumber];
-    [self.responseData writeToFile:localPath atomically:YES];
+    // If server gave us data but we overwrote path extension, ensure dir exists
+    NSString *dir = [localPath stringByDeletingLastPathComponent];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:dir]) {
+        [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    BOOL wrote = [self.responseData writeToFile:localPath atomically:YES];
+    if (!wrote) {
+        NSLog(@"[DownloadTask] Failed to write file to %@", localPath);
+        [self handleFailure];
+        return;
+    }
     self.localPath = localPath;
+    // Clear response data to save memory
+    self.responseData = nil;
     if ([self.delegate respondsToSelector:@selector(downloadTaskDidComplete:)]) {
         [self.delegate downloadTaskDidComplete:self];
     }
 }
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
+    NSLog(@"[DownloadTask] Failed for comic %ld: %@", (long)self.comicNumber, error);
     self.connection = nil;
-    self.retryCount += 1;
-    if (self.retryCount < self.maxRetries) {
-        self.status = DownloadStatusPending;
-        self.progress = 0.0f;
-        [self performSelector:@selector(startDownload) withObject:nil afterDelay:2.0];
-        return;
-    }
-    self.status = DownloadStatusFailed;
-    if ([self.delegate respondsToSelector:@selector(downloadTaskDidFail:)]) {
-        [self.delegate downloadTaskDidFail:self];
-    }
+    [self handleFailure];
 }
 
 #pragma mark - NSCoding
@@ -159,6 +214,13 @@
         self.responseData = [NSMutableData data];
         self.expectedContentLength = 0;
         self.downloadedLength = 0;
+        // If completed but file missing, reset to pending
+        if (self.status == DownloadStatusCompleted && self.localPath) {
+            if (![[NSFileManager defaultManager] fileExistsAtPath:self.localPath]) {
+                self.status = DownloadStatusPending;
+                self.progress = 0;
+            }
+        }
     }
     return self;
 }

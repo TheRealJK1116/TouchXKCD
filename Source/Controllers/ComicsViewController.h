@@ -2,10 +2,11 @@
 #import "Protocols/ComicNetworkProtocol.h"
 #import "Protocols/DownloadDelegateProtocol.h"
 #import "Managers/ImageDownloader.h"
+#import "Managers/ExplanationProvider.h"
 
 @class Comic;
 
-@interface ComicsViewController : UIViewController <ComicNetworkDelegate, DownloadDelegateProtocol, ImageDownloaderDelegate>
+@interface ComicsViewController : UIViewController <ComicNetworkDelegate, DownloadDelegateProtocol, ImageDownloaderDelegate, UIAlertViewDelegate, ExplanationProviderDelegate>
 
 @property (nonatomic, strong) Comic *currentComic;
 @property (nonatomic, strong) UIImageView *comicImageView;

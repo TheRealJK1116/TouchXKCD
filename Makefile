@@ -16,8 +16,7 @@ TouchXKCD_FILES = Source/main.m Source/AppDelegate.m \
     Source/Managers/DownloadManager.m Source/Managers/SearchManager.m \
     Source/Managers/SettingsManager.m Source/Managers/DownloadTask.m Source/Managers/SearchIndex.m Source/Managers/XKCDNetworkClient.m Source/Managers/ExplanationProvider.m Source/Managers/ExplanationCache.m Source/Managers/ComicParser.m Source/Managers/ImageCache.m Source/Managers/ImageDownloader.m \
     Source/Models/Comic.m Source/Models/Explanation.m \
-    Source/Models/Favourite.m Source/Models/Settings.m \
-
+    Source/Models/Favourite.m Source/Models/Settings.m
 
 TouchXKCD_FRAMEWORKS = UIKit CoreGraphics QuartzCore Foundation SystemConfiguration
 TouchXKCD_LIBRARIES = sqlite3 stdc++
