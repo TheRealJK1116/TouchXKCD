@@ -5,13 +5,14 @@
 @property (nonatomic, strong) NSMutableData *data;
 @property (nonatomic, strong) NSString *urlString;
 @property (nonatomic, assign) id<ImageDownloaderDelegate> delegate;
+@property (nonatomic, strong) NSURLConnection *connection;
 @end
 
 @implementation ImageRequestInfo
 @end
 
-@interface ImageDownloader ()
-@property (nonatomic, strong) NSMutableDictionary *downloads;
+@interface ImageDownloader () <NSURLConnectionDataDelegate, NSURLConnectionDelegate>
+@property (nonatomic, strong) NSMutableDictionary *downloads; // key: urlString, value: ImageRequestInfo
 @end
 
 @implementation ImageDownloader
@@ -45,6 +46,9 @@
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
     NSString *cacheDir = [[paths objectAtIndex:0] stringByAppendingPathComponent:@"TouchXKCD/images"];
     NSString *filename = [urlString lastPathComponent];
+    if (!filename || filename.length == 0) {
+        filename = [NSString stringWithFormat:@"%lu", (unsigned long)[urlString hash]];
+    }
     NSString *filePath = [cacheDir stringByAppendingPathComponent:filename];
     NSFileManager *fm = [NSFileManager defaultManager];
     if ([fm fileExistsAtPath:filePath]) {
@@ -58,7 +62,24 @@
         }
     }
 
+    // Avoid duplicate downloads for same URL
+    @synchronized(self.downloads) {
+        ImageRequestInfo *existing = [self.downloads objectForKey:urlString];
+        if (existing) {
+            // If already downloading, add delegate replacement? For simplicity, overwrite delegate
+            existing.delegate = delegate;
+            return;
+        }
+    }
+
     NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) {
+        if ([delegate respondsToSelector:@selector(imageDownloader:didDownloadImage:forURL:error:)]) {
+            [delegate imageDownloader:self didDownloadImage:nil forURL:urlString error:[NSError errorWithDomain:@"TouchXKCD" code:-2 userInfo:@{NSLocalizedDescriptionKey: @"Invalid URL format"}]];
+        }
+        return;
+    }
+
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30.0];
     [request setValue:@"TouchXKCD/1.0 (iPod touch; iOS 6.1.6)" forHTTPHeaderField:@"User-Agent"];
     NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO];
@@ -67,20 +88,26 @@
         info.data = [NSMutableData data];
         info.urlString = urlString;
         info.delegate = delegate;
-        [self.downloads setObject:info forKey:[NSValue valueWithNonretainedObject:connection]];
+        info.connection = connection;
+        @synchronized(self.downloads) {
+            [self.downloads setObject:info forKey:urlString];
+        }
         [connection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
         [connection start];
+    } else {
+        if ([delegate respondsToSelector:@selector(imageDownloader:didDownloadImage:forURL:error:)]) {
+            [delegate imageDownloader:self didDownloadImage:nil forURL:urlString error:[NSError errorWithDomain:@"TouchXKCD" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to create connection"}]];
+        }
     }
 }
 
 - (void)cancelDownloadForURL:(NSString *)urlString {
-    NSArray *keys = [self.downloads allKeys];
-    for (NSValue *key in keys) {
-        ImageRequestInfo *info = [self.downloads objectForKey:key];
-        if ([info.urlString isEqualToString:urlString]) {
-            NSURLConnection *connection = [key nonretainedObjectValue];
-            [connection cancel];
-            [self.downloads removeObjectForKey:key];
+    if (!urlString) return;
+    @synchronized(self.downloads) {
+        ImageRequestInfo *info = [self.downloads objectForKey:urlString];
+        if (info) {
+            [info.connection cancel];
+            [self.downloads removeObjectForKey:urlString];
         }
     }
 }
@@ -88,56 +115,92 @@
 #pragma mark - NSURLConnectionDataDelegate
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
-    NSValue *key = [NSValue valueWithNonretainedObject:connection];
-    ImageRequestInfo *info = [self.downloads objectForKey:key];
-    [info.data setLength:0];
+    // Find info by connection
+    @synchronized(self.downloads) {
+        for (ImageRequestInfo *info in [self.downloads allValues]) {
+            if (info.connection == connection) {
+                [info.data setLength:0];
+                break;
+            }
+        }
+    }
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
-    NSValue *key = [NSValue valueWithNonretainedObject:connection];
-    ImageRequestInfo *info = [self.downloads objectForKey:key];
-    [info.data appendData:data];
+    @synchronized(self.downloads) {
+        for (ImageRequestInfo *info in [self.downloads allValues]) {
+            if (info.connection == connection) {
+                [info.data appendData:data];
+                break;
+            }
+        }
+    }
 }
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection {
-    NSValue *key = [NSValue valueWithNonretainedObject:connection];
-    ImageRequestInfo *info = [self.downloads objectForKey:key];
-    [self.downloads removeObjectForKey:key];
-    if (!info) return;
+    ImageRequestInfo *foundInfo = nil;
+    @synchronized(self.downloads) {
+        for (NSString *key in [self.downloads allKeys]) {
+            ImageRequestInfo *info = [self.downloads objectForKey:key];
+            if (info.connection == connection) {
+                foundInfo = info;
+                [self.downloads removeObjectForKey:key];
+                break;
+            }
+        }
+    }
+    if (!foundInfo) return;
 
-    UIImage *image = [UIImage imageWithData:info.data];
+    UIImage *image = [UIImage imageWithData:foundInfo.data];
     if (image) {
-        [[ImageCache sharedCache] cacheImage:image forKey:info.urlString];
+        [[ImageCache sharedCache] cacheImage:image forKey:foundInfo.urlString];
 
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
         NSString *cacheDir = [[paths objectAtIndex:0] stringByAppendingPathComponent:@"TouchXKCD/images"];
-        NSString *filename = [info.urlString lastPathComponent];
+        NSString *filename = [foundInfo.urlString lastPathComponent];
+        if (!filename || filename.length == 0) filename = [NSString stringWithFormat:@"%lu", (unsigned long)[foundInfo.urlString hash]];
         NSString *filePath = [cacheDir stringByAppendingPathComponent:filename];
 
-        NSError *writeError = nil;
         NSFileManager *fm = [NSFileManager defaultManager];
-        BOOL dirCreated = YES;
+        NSError *writeError = nil;
         if (![fm fileExistsAtPath:cacheDir]) {
-            dirCreated = [fm createDirectoryAtPath:cacheDir withIntermediateDirectories:YES attributes:nil error:&writeError];
+            [fm createDirectoryAtPath:cacheDir withIntermediateDirectories:YES attributes:nil error:&writeError];
         }
-        if (dirCreated) {
-            NSData *imageData = UIImagePNGRepresentation(image);
+        if (!writeError) {
+            // Prefer JPEG for smaller size unless PNG is needed for transparency
+            NSData *imageData = nil;
+            NSString *ext = [[filename pathExtension] lowercaseString];
+            if ([ext isEqualToString:@"png"]) {
+                imageData = UIImagePNGRepresentation(image);
+            } else {
+                imageData = UIImageJPEGRepresentation(image, 0.9);
+            }
             [imageData writeToFile:filePath atomically:YES];
         }
     }
 
-    if ([info.delegate respondsToSelector:@selector(imageDownloader:didDownloadImage:forURL:error:)]) {
-        [info.delegate imageDownloader:self didDownloadImage:image forURL:info.urlString error:(image ? nil : [NSError errorWithDomain:@"TouchXKCD" code:-3 userInfo:@{NSLocalizedDescriptionKey: @"Failed to create image"}])];
+    id<ImageDownloaderDelegate> delegate = foundInfo.delegate;
+    if ([delegate respondsToSelector:@selector(imageDownloader:didDownloadImage:forURL:error:)]) {
+        [delegate imageDownloader:self didDownloadImage:image forURL:foundInfo.urlString error:(image ? nil : [NSError errorWithDomain:@"TouchXKCD" code:-3 userInfo:@{NSLocalizedDescriptionKey: @"Failed to create image"}])];
     }
 }
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
-    NSValue *key = [NSValue valueWithNonretainedObject:connection];
-    ImageRequestInfo *info = [self.downloads objectForKey:key];
-    [self.downloads removeObjectForKey:key];
-    if (!info) return;
-    if ([info.delegate respondsToSelector:@selector(imageDownloader:didDownloadImage:forURL:error:)]) {
-        [info.delegate imageDownloader:self didDownloadImage:nil forURL:info.urlString error:error];
+    ImageRequestInfo *foundInfo = nil;
+    @synchronized(self.downloads) {
+        for (NSString *key in [self.downloads allKeys]) {
+            ImageRequestInfo *info = [self.downloads objectForKey:key];
+            if (info.connection == connection) {
+                foundInfo = info;
+                [self.downloads removeObjectForKey:key];
+                break;
+            }
+        }
+    }
+    if (!foundInfo) return;
+    id<ImageDownloaderDelegate> delegate = foundInfo.delegate;
+    if ([delegate respondsToSelector:@selector(imageDownloader:didDownloadImage:forURL:error:)]) {
+        [delegate imageDownloader:self didDownloadImage:nil forURL:foundInfo.urlString error:error];
     }
 }
 

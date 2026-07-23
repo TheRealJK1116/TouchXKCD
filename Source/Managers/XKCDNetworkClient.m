@@ -6,13 +6,14 @@
 @property (nonatomic, assign) NSInteger comicNumber;
 @property (nonatomic, assign) id<XKCDNetworkClientDelegate> delegate;
 @property (nonatomic, assign) BOOL isImageRequest;
+@property (nonatomic, strong) NSURLConnection *connection;
 @end
 
 @implementation RequestInfo
 @end
 
-@interface XKCDNetworkClient ()
-@property (nonatomic, strong) NSMutableDictionary *connectionMap;
+@interface XKCDNetworkClient () <NSURLConnectionDataDelegate, NSURLConnectionDelegate>
+@property (nonatomic, strong) NSMutableDictionary *connectionMap; // key: NSValue(connection), value: RequestInfo
 @end
 
 @implementation XKCDNetworkClient
@@ -37,13 +38,24 @@
 }
 
 - (void)fetchRandomComicWithDelegate:(id<XKCDNetworkClientDelegate>)delegate {
-    // Random: we'll fetch latest first, then pick a random number between 1 and latest number.
-    // For simplicity, this skeleton delegates to latest and lets the manager handle randomness.
+    // For proper random handling, ComicManager now implements randomness; this remains for backward compat
     [self fetchLatestComicWithDelegate:delegate];
 }
 
 - (void)fetchImageForComic:(NSInteger)comicNumber imageURLString:(NSString *)urlString delegate:(id<XKCDNetworkClientDelegate>)delegate {
+    if (!urlString || urlString.length == 0) {
+        if ([delegate respondsToSelector:@selector(networkClient:didFetchImageData:forComic:error:)]) {
+            [delegate networkClient:self didFetchImageData:nil forComic:comicNumber error:[NSError errorWithDomain:@"TouchXKCD" code:-2 userInfo:@{NSLocalizedDescriptionKey: @"Invalid image URL"}]];
+        }
+        return;
+    }
     NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) {
+        if ([delegate respondsToSelector:@selector(networkClient:didFetchImageData:forComic:error:)]) {
+            [delegate networkClient:self didFetchImageData:nil forComic:comicNumber error:[NSError errorWithDomain:@"TouchXKCD" code:-2 userInfo:@{NSLocalizedDescriptionKey: @"Invalid URL format"}]];
+        }
+        return;
+    }
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30.0];
     [request setValue:@"TouchXKCD/1.0 (iPod touch; iOS 6.1.6)" forHTTPHeaderField:@"User-Agent"];
     NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO];
@@ -53,14 +65,27 @@
         info.comicNumber = comicNumber;
         info.delegate = delegate;
         info.isImageRequest = YES;
-        [self.connectionMap setObject:info forKey:[NSValue valueWithNonretainedObject:connection]];
+        info.connection = connection;
+        @synchronized(self.connectionMap) {
+            [self.connectionMap setObject:info forKey:[NSValue valueWithNonretainedObject:connection]];
+        }
         [connection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
         [connection start];
+    } else {
+        if ([delegate respondsToSelector:@selector(networkClient:didFetchImageData:forComic:error:)]) {
+            [delegate networkClient:self didFetchImageData:nil forComic:comicNumber error:[NSError errorWithDomain:@"TouchXKCD" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to create connection"}]];
+        }
     }
 }
 
 - (void)startRequestWithURLString:(NSString *)urlString comicNumber:(NSInteger)number delegate:(id<XKCDNetworkClientDelegate>)delegate isImage:(BOOL)isImage {
     NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) {
+        if ([delegate respondsToSelector:@selector(networkClient:didFetchComic:error:)]) {
+            [delegate networkClient:self didFetchComic:nil error:[NSError errorWithDomain:@"TouchXKCD" code:-2 userInfo:@{NSLocalizedDescriptionKey: @"Invalid URL"}]];
+        }
+        return;
+    }
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30.0];
     [request setValue:@"TouchXKCD/1.0 (iPod touch; iOS 6.1.6)" forHTTPHeaderField:@"User-Agent"];
     NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO];
@@ -70,39 +95,64 @@
         info.comicNumber = number;
         info.delegate = delegate;
         info.isImageRequest = isImage;
-        [self.connectionMap setObject:info forKey:[NSValue valueWithNonretainedObject:connection]];
+        info.connection = connection;
+        @synchronized(self.connectionMap) {
+            [self.connectionMap setObject:info forKey:[NSValue valueWithNonretainedObject:connection]];
+        }
         [connection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
         [connection start];
+    } else {
+        if ([delegate respondsToSelector:@selector(networkClient:didFetchComic:error:)]) {
+            [delegate networkClient:self didFetchComic:nil error:[NSError errorWithDomain:@"TouchXKCD" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to create connection"}]];
+        }
     }
 }
 
 - (void)cancelAllRequests {
-    NSArray *keys = [self.connectionMap allKeys];
-    for (NSValue *key in keys) {
-        NSURLConnection *connection = [key nonretainedObjectValue];
-        [connection cancel];
+    @synchronized(self.connectionMap) {
+        for (NSValue *key in [self.connectionMap allKeys]) {
+            RequestInfo *info = [self.connectionMap objectForKey:key];
+            [info.connection cancel];
+        }
+        [self.connectionMap removeAllObjects];
     }
-    [self.connectionMap removeAllObjects];
 }
 
 #pragma mark - NSURLConnectionDataDelegate
 
+- (RequestInfo *)infoForConnection:(NSURLConnection *)connection {
+    @synchronized(self.connectionMap) {
+        return [self.connectionMap objectForKey:[NSValue valueWithNonretainedObject:connection]];
+    }
+}
+
+- (void)removeInfoForConnection:(NSURLConnection *)connection {
+    @synchronized(self.connectionMap) {
+        [self.connectionMap removeObjectForKey:[NSValue valueWithNonretainedObject:connection]];
+    }
+}
+
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
-    NSValue *key = [NSValue valueWithNonretainedObject:connection];
-    RequestInfo *info = [self.connectionMap objectForKey:key];
+    RequestInfo *info = [self infoForConnection:connection];
     [info.responseData setLength:0];
+    // Check HTTP status code if HTTP response
+    if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+        NSInteger statusCode = [(NSHTTPURLResponse *)response statusCode];
+        if (statusCode >= 400) {
+            // Will be handled as failure later, but log
+            NSLog(@"[XKCDNetworkClient] HTTP %ld for comic %ld", (long)statusCode, (long)info.comicNumber);
+        }
+    }
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
-    NSValue *key = [NSValue valueWithNonretainedObject:connection];
-    RequestInfo *info = [self.connectionMap objectForKey:key];
+    RequestInfo *info = [self infoForConnection:connection];
     [info.responseData appendData:data];
 }
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection {
-    NSValue *key = [NSValue valueWithNonretainedObject:connection];
-    RequestInfo *info = [self.connectionMap objectForKey:key];
-    [self.connectionMap removeObjectForKey:key];
+    RequestInfo *info = [self infoForConnection:connection];
+    [self removeInfoForConnection:connection];
     if (!info) return;
 
     if (info.isImageRequest) {
@@ -111,25 +161,42 @@
         }
     } else {
         NSError *parseError = nil;
-        NSDictionary *jsonDict = [NSJSONSerialization JSONObjectWithData:info.responseData options:0 error:&parseError];
+        if (info.responseData.length == 0) {
+            parseError = [NSError errorWithDomain:@"TouchXKCD" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Empty response"}];
+        }
+        NSDictionary *jsonDict = nil;
+        if (!parseError) {
+            jsonDict = [NSJSONSerialization JSONObjectWithData:info.responseData options:0 error:&parseError];
+        }
         if (!parseError && jsonDict) {
             Comic *comic = [[Comic alloc] init];
-            [comic hydrateFromDictionary:jsonDict];
-            if ([info.delegate respondsToSelector:@selector(networkClient:didFetchComic:error:)]) {
-                [info.delegate networkClient:self didFetchComic:comic error:nil];
+            @try {
+                [comic hydrateFromDictionary:jsonDict];
+            } @catch (NSException *ex) {
+                parseError = [NSError errorWithDomain:@"TouchXKCD" code:-1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Hydration failed: %@", ex]}];
+                comic = nil;
+            }
+            if (comic) {
+                if ([info.delegate respondsToSelector:@selector(networkClient:didFetchComic:error:)]) {
+                    [info.delegate networkClient:self didFetchComic:comic error:nil];
+                }
+            } else {
+                if ([info.delegate respondsToSelector:@selector(networkClient:didFetchComic:error:)]) {
+                    [info.delegate networkClient:self didFetchComic:nil error:parseError];
+                }
             }
         } else {
             if ([info.delegate respondsToSelector:@selector(networkClient:didFetchComic:error:)]) {
-                [info.delegate networkClient:self didFetchComic:nil error:parseError ? parseError : [NSError errorWithDomain:@"TouchXKCD" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to parse JSON"}]];
+                NSError *err = parseError ?: [NSError errorWithDomain:@"TouchXKCD" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to parse JSON"}];
+                [info.delegate networkClient:self didFetchComic:nil error:err];
             }
         }
     }
 }
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
-    NSValue *key = [NSValue valueWithNonretainedObject:connection];
-    RequestInfo *info = [self.connectionMap objectForKey:key];
-    [self.connectionMap removeObjectForKey:key];
+    RequestInfo *info = [self infoForConnection:connection];
+    [self removeInfoForConnection:connection];
     if (!info) return;
 
     if (info.isImageRequest) {

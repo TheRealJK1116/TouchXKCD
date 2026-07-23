@@ -20,10 +20,13 @@
     self = [super init];
     if (self) {
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
-        NSString *dir = [[paths objectAtIndex:0] stringByAppendingPathComponent:@"TouchXKCD/explanations"];
+        NSString *base = [paths objectAtIndex:0];
+        NSString *dir = [base stringByAppendingPathComponent:@"TouchXKCD/explanations"];
         NSFileManager *fm = [NSFileManager defaultManager];
         if (![fm fileExistsAtPath:dir]) {
-            [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+            NSError *err = nil;
+            [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&err];
+            if (err) NSLog(@"[ExplanationCache] Failed to create dir %@: %@", dir, err);
         }
         self.cacheDir = dir;
     }
@@ -31,27 +34,55 @@
 }
 
 - (NSString *)cachePathForComic:(NSInteger)comicNumber {
+    if (comicNumber <= 0) return nil;
     return [self.cacheDir stringByAppendingPathComponent:[NSString stringWithFormat:@"explanation_%ld.archive", (long)comicNumber]];
 }
 
 - (Explanation *)cachedExplanationForComic:(NSInteger)comicNumber {
+    if (comicNumber <= 0) return nil;
     NSString *path = [self cachePathForComic:comicNumber];
-    Explanation *exp = [NSKeyedUnarchiver unarchiveObjectWithFile:path];
-    return exp;
+    if (!path) return nil;
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) return nil;
+    @try {
+        Explanation *exp = [NSKeyedUnarchiver unarchiveObjectWithFile:path];
+        return exp;
+    } @catch (NSException *ex) {
+        NSLog(@"[ExplanationCache] Unarchive failed for #%ld: %@", (long)comicNumber, ex);
+        return nil;
+    }
 }
 
 - (void)cacheExplanation:(Explanation *)explanation {
-    if (!explanation) return;
+    if (!explanation || explanation.comicNumber <= 0) return;
     NSString *path = [self cachePathForComic:explanation.comicNumber];
-    [NSKeyedArchiver archiveRootObject:explanation toFile:path];
+    if (!path) return;
+    @try {
+        BOOL ok = [NSKeyedArchiver archiveRootObject:explanation toFile:path];
+        if (!ok) NSLog(@"[ExplanationCache] Failed to archive #%ld", (long)explanation.comicNumber);
+    } @catch (NSException *ex) {
+        NSLog(@"[ExplanationCache] Archive exception #%ld: %@", (long)explanation.comicNumber, ex);
+    }
 }
 
 - (void)clearCache {
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSArray *files = [fm contentsOfDirectoryAtPath:self.cacheDir error:nil];
-    for (NSString *file in files) {
-        [fm removeItemAtPath:[self.cacheDir stringByAppendingPathComponent:file] error:nil];
+    NSError *err = nil;
+    NSArray *files = [fm contentsOfDirectoryAtPath:self.cacheDir error:&err];
+    if (err) {
+        NSLog(@"[ExplanationCache] List error: %@", err);
+        return;
     }
+    NSInteger removed = 0;
+    for (NSString *file in files) {
+        NSString *full = [self.cacheDir stringByAppendingPathComponent:file];
+        if ([fm removeItemAtPath:full error:nil]) removed++;
+    }
+    NSLog(@"[ExplanationCache] Cleared %ld files", (long)removed);
+}
+
+- (NSUInteger)cacheCount {
+    NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:self.cacheDir error:nil];
+    return [files count];
 }
 
 @end

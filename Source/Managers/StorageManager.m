@@ -29,28 +29,42 @@
 }
 
 - (BOOL)initializeDatabase {
-    // File-based archive persistence for skeleton.
+    // File-based archive persistence; ensure directory exists.
+    [self databaseDirectory];
     return YES;
 }
 
 - (void)vacuumIfNeeded {
-    // Not applicable for file-based archive.
+    // Not applicable for file-based archive, but could prune old files if over limit.
+    // Placeholder for future LRU pruning based on Settings maxCacheSize.
 }
 
 - (void)saveComic:(Comic *)comic {
+    if (!comic || comic.number <= 0) return;
     NSString *path = [self comicFilePath:comic.number];
-    [NSKeyedArchiver archiveRootObject:comic toFile:path];
+    BOOL success = [NSKeyedArchiver archiveRootObject:comic toFile:path];
+    if (!success) {
+        NSLog(@"[StorageManager] Failed to archive comic #%ld to %@", (long)comic.number, path);
+    }
 }
 
 - (Comic *)loadComic:(NSInteger)number {
+    if (number <= 0) return nil;
     NSString *path = [self comicFilePath:number];
-    Comic *comic = [NSKeyedUnarchiver unarchiveObjectWithFile:path];
-    if (comic) {
-        comic.number = number;
-    } else {
-        comic = [Comic comicWithNumber:number];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:path]) {
+        return nil;
     }
-    return comic;
+    @try {
+        Comic *comic = [NSKeyedUnarchiver unarchiveObjectWithFile:path];
+        if (comic && comic.number == 0) {
+            comic.number = number;
+        }
+        return comic;
+    } @catch (NSException *ex) {
+        NSLog(@"[StorageManager] Exception unarchiving comic #%ld: %@", (long)number, ex);
+        return nil;
+    }
 }
 
 - (NSArray *)loadAllComics {
@@ -58,26 +72,36 @@
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
     NSMutableArray *comics = [NSMutableArray array];
+    if (!files) return comics;
     for (NSString *file in files) {
         if ([file hasPrefix:@"comic_"] && [file hasSuffix:@".archive"]) {
-            NSString *numStr = [file substringWithRange:NSMakeRange(6, file.length - 6 - 8)];
-            NSInteger number = [numStr intValue];
+            if (file.length <= 14) continue;
+            NSRange numRange = NSMakeRange(6, file.length - 14);
+            if (numRange.location + numRange.length > file.length) continue;
+            NSString *numStr = [file substringWithRange:numRange];
+            NSInteger number = [numStr integerValue];
+            if (number <= 0) continue;
             Comic *comic = [self loadComic:number];
             if (comic) {
                 [comics addObject:comic];
             }
         }
     }
-    return comics;
+    return [comics copy];
 }
 
 - (void)deleteComic:(NSInteger)number {
+    if (number <= 0) return;
     NSString *path = [self comicFilePath:number];
-    [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    NSError *err = nil;
+    BOOL removed = [[NSFileManager defaultManager] removeItemAtPath:path error:&err];
+    if (!removed && err) {
+        NSLog(@"[StorageManager] Failed to delete comic #%ld: %@", (long)number, err);
+    }
 }
 
 - (void)saveDownloadTask:(DownloadTask *)task {
-    // Persistence handled by DownloadManager; this is a placeholder for SQLite integration.
+    // Persistence handled by DownloadManager; placeholder for SQLite integration.
 }
 
 - (DownloadTask *)loadDownloadTask:(NSInteger)taskID {
@@ -86,7 +110,6 @@
 }
 
 - (NSArray *)loadAllDownloadTasks {
-    // Return download tasks from persistence
     return [NSArray array];
 }
 

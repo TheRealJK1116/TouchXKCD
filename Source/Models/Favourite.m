@@ -32,20 +32,27 @@
 }
 
 - (void)add {
+    if ([[self class] isFavourite:self.comicNumber]) {
+        return; // Prevent duplicates
+    }
     self.addedAt = [NSDate date];
     NSMutableArray *favs = [[Favourite allFavourites] mutableCopy];
+    if (!favs) favs = [NSMutableArray array];
     [favs addObject:self];
     [NSKeyedArchiver archiveRootObject:favs toFile:[[self class] favouritesFilePath]];
 }
 
 - (void)remove {
-    NSMutableArray *favs = [[Favourite allFavourites] mutableCopy];
-    for (Favourite *fav in favs) {
+    NSArray *currentFavs = [Favourite allFavourites];
+    NSMutableArray *favs = [currentFavs mutableCopy];
+    if (!favs) favs = [NSMutableArray array];
+    NSMutableArray *toRemove = [NSMutableArray array];
+    for (Favourite *fav in currentFavs) {
         if (fav.comicNumber == self.comicNumber) {
-            [favs removeObject:fav];
-            break;
+            [toRemove addObject:fav];
         }
     }
+    [favs removeObjectsInArray:toRemove];
     [NSKeyedArchiver archiveRootObject:favs toFile:[[self class] favouritesFilePath]];
 }
 

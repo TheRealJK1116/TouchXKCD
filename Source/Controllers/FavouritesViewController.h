@@ -1,5 +1,5 @@
 #import <UIKit/UIKit.h>
 
-@interface FavouritesViewController : UITableViewController
+@interface FavouritesViewController : UITableViewController <UIAlertViewDelegate>
 
 @end
