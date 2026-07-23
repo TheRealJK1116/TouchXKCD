@@ -1,0 +1,15 @@
+# Theos build artifacts
+*.o
+*.a
+*.deb
+*.app
+_/*
+obj/
+
+# Xcode
+*.xcodeproj
+build/
+
+# System
+.DS_Store
+Thumbs.db
