@@ -5,7 +5,9 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>English</string>
     <key>CFBundleExecutable</key>
-    <string>$(EXECUTABLE_NAME)</string>
+    <string>TouchXKCD</string>
+    <key>CFBundleDisplayName</key>
+    <string>TouchXKCD</string>
     <key>CFBundleIdentifier</key>
     <string>com.touchxkcd</string>
     <key>CFBundleInfoDictionaryVersion</key>
