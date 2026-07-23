@@ -20,7 +20,7 @@ TouchXKCD_FILES = Source/main.m Source/AppDelegate.m \
 
 
 TouchXKCD_FRAMEWORKS = UIKit CoreGraphics QuartzCore Foundation SystemConfiguration
-TouchXKCD_LIBRARIES = sqlite3
+TouchXKCD_LIBRARIES = sqlite3 stdc++
 
 TouchXKCD_CFLAGS = -fobjc-arc -I. -I./Source
 
