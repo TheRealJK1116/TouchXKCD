@@ -30,11 +30,10 @@
         [[UIBarButtonItem alloc] initWithTitle:@"Explain" style:UIBarButtonItemStyleBordered target:self action:@selector(showExplanation)]
     ];
 
-    // Scroll view to allow scrolling all content
-    self.scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, 320, 416)];
-    self.scrollView.contentSize = CGSizeMake(320, 650);
+    // Scroll view for comic content only (leaves room for fixed buttons)
+    self.scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, 320, 365)];
+    self.scrollView.contentSize = CGSizeMake(320, 500);
     self.scrollView.showsVerticalScrollIndicator = YES;
-    self.scrollView.autoresizingMask = UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleWidth;
     [self.view addSubview:self.scrollView];
 
     // Title label
@@ -68,7 +67,7 @@
     [self.scrollView addSubview:self.altTextView];
 
     // Transcript text view (scrollable, larger)
-    self.transcriptTextView = [[UITextView alloc] initWithFrame:CGRectMake(10, 400, 300, 100)];
+    self.transcriptTextView = [[UITextView alloc] initWithFrame:CGRectMake(10, 400, 300, 80)];
     self.transcriptTextView.font = [UIFont systemFontOfSize:12.0f];
     self.transcriptTextView.editable = NO;
     self.transcriptTextView.scrollEnabled = YES;
@@ -80,8 +79,8 @@
     [self.activityIndicator startAnimating];
     [self.scrollView addSubview:self.activityIndicator];
 
-    // Control buttons (visible below transcript)
-    CGFloat buttonY = 515;
+    // Control buttons (fixed at bottom of screen, not inside scroll)
+    CGFloat buttonY = 370;
     CGFloat buttonWidth = 55;
     CGFloat spacing = 5;
     CGFloat totalWidth = buttonWidth * 5 + spacing * 4;
@@ -91,17 +90,17 @@
     self.nextButton = [self createButton:@"Next" frame:CGRectMake(startX + buttonWidth + spacing, buttonY, buttonWidth, 36) action:@selector(showNextComic)];
     self.randomButton = [self createButton:@"Random" frame:CGRectMake(startX + (buttonWidth + spacing) * 2, buttonY, buttonWidth, 36) action:@selector(showRandomComic)];
     UIButton *favBtn = [self createButton:@"Fav" frame:CGRectMake(startX + (buttonWidth + spacing) * 3, buttonY, buttonWidth, 36) action:@selector(toggleFavouriteCurrentComic)];
-    [self.scrollView addSubview:favBtn];
+    [self.view addSubview:favBtn];
     self.jumpButton = [self createButton:@"Jump" frame:CGRectMake(startX + (buttonWidth + spacing) * 4, buttonY, buttonWidth, 36) action:@selector(promptJumpComic)];
 
-    // Download button (top right of image)
+    // Download button (top right of image, inside scroll view)
     UIButton *downloadBtn = [self createButton:@"Download" frame:CGRectMake(230, 5, 70, 30) action:@selector(startDownloadCurrentComic)];
     [self.scrollView addSubview:downloadBtn];
 
-    [self.scrollView addSubview:self.prevButton];
-    [self.scrollView addSubview:self.nextButton];
-    [self.scrollView addSubview:self.randomButton];
-    [self.scrollView addSubview:self.jumpButton];
+    [self.view addSubview:self.prevButton];
+    [self.view addSubview:self.nextButton];
+    [self.view addSubview:self.randomButton];
+    [self.view addSubview:self.jumpButton];
 
     // Apply settings
     [self applySettings];

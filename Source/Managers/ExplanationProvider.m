@@ -10,6 +10,22 @@
 @end
 
 @implementation ExplanationParserStrategy
+- (NSString *)stripHTML:(NSString *)html {
+    if (!html) return @"";
+    // Remove HTML tags
+    NSRange r;
+    NSString *stripped = html;
+    while ((r = [stripped rangeOfString:@"<[^>]+>" options:NSRegularExpressionSearch]).location != NSNotFound) {
+        stripped = [stripped stringByReplacingCharactersInRange:r withString:@""];
+    }
+    // Decode basic HTML entities
+    stripped = [stripped stringByReplacingOccurrencesOfString:@"&quot;" withString:@"\""];
+    stripped = [stripped stringByReplacingOccurrencesOfString:@"&amp;" withString:@"&"];
+    stripped = [stripped stringByReplacingOccurrencesOfString:@"&lt;" withString:@"<"];
+    stripped = [stripped stringByReplacingOccurrencesOfString:@"&gt;" withString:@">"];
+    stripped = [stripped stringByReplacingOccurrencesOfString:@"&nbsp;" withString:@" "];
+    return stripped;
+}
 - (Explanation *)parseData:(NSData *)data forComic:(NSInteger)comicNumber error:(NSError **)error {
     // Try JSON first
     NSError *jsonError = nil;
@@ -29,9 +45,10 @@
     if (!text) {
         text = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
     }
+    NSString *stripped = [self stripHTML:text ? text : @""];
     Explanation *exp = [[Explanation alloc] init];
     exp.comicNumber = comicNumber;
-    exp.body = text ? text : @"";
+    exp.body = stripped ? stripped : @"";
     exp.references = [NSArray array];
     exp.author = @"Unknown";
     exp.lastUpdated = [NSDate date];

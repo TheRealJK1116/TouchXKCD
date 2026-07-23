@@ -14,6 +14,7 @@
     dispatch_once(&onceToken, ^{
         shared = [[self alloc] init];
         shared.searchIndex = [[SearchIndex alloc] init];
+        [shared rebuildSearchIndex];
     });
     return shared;
 }

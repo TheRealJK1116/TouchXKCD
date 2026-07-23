@@ -14,7 +14,7 @@
     self.view.backgroundColor = [UIColor groupTableViewBackgroundColor];
     self.selectedSegment = 0;
 
-    NSArray *items = @[@"Active", @"Completed", @"Failed"];
+    NSArray *items = @[@"Active", @"Done", @"Failed"];
     self.segmentControl = [[UISegmentedControl alloc] initWithItems:items];
     self.segmentControl.frame = CGRectMake(50, 10, 220, 28);
     [self.segmentControl addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
