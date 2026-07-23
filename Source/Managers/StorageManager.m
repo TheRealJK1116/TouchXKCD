@@ -54,8 +54,21 @@
 }
 
 - (NSArray *)loadAllComics {
-    // For skeleton, return empty array.
-    return [NSArray array];
+    NSString *dir = [self databaseDirectory];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
+    NSMutableArray *comics = [NSMutableArray array];
+    for (NSString *file in files) {
+        if ([file hasPrefix:@"comic_"] && [file hasSuffix:@".archive"]) {
+            NSString *numStr = [file substringWithRange:NSMakeRange(6, file.length - 6 - 8)];
+            NSInteger number = [numStr intValue];
+            Comic *comic = [self loadComic:number];
+            if (comic) {
+                [comics addObject:comic];
+            }
+        }
+    }
+    return comics;
 }
 
 - (void)deleteComic:(NSInteger)number {
