@@ -7,22 +7,6 @@
 
 @interface SettingsViewController ()
 @property (nonatomic, strong) NSArray *sectionTitles;
-#pragma mark - UIAlertViewDelegate
-
-- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
-    if (buttonIndex == 1) {
-        UITextField *textField = [alertView textFieldAtIndex:0];
-        NSString *text = textField.text;
-        NSInteger size = [text intValue];
-        if (size > 0) {
-            Settings *settings = [[SettingsManager sharedInstance] currentSettings];
-            settings.maxCacheSize = size;
-            [[SettingsManager sharedInstance] updateSetting:@"maxCacheSize" value:@(size)];
-            [self.tableView reloadData];
-        }
-    }
-}
-
 @end
 
 @implementation SettingsViewController
@@ -143,6 +127,9 @@
     }
     [self.tableView reloadData];
 }
+
+
+
 
 #pragma mark - UIAlertViewDelegate
 
