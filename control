@@ -1,0 +1,9 @@
+Package: com.touchxkcd
+Name: TouchXKCD
+Depends: mobilesubstrate, firmware (>= 6.0)
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: The definitive XKCD application for legacy iOS devices.
+Maintainer: TouchXKCD Team
+Author: RealJK1116
+Section: Entertainment
