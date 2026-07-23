@@ -37,23 +37,23 @@
 }
 
 - (void)saveQueue {
-    NSArray *allTasks = [[self.queue arrayByAddingObjectsFromArray:self.completedTasks] arrayByAddingObjectsFromArray:self.failedTasks];
+    NSArray *allTasks = [[_queue arrayByAddingObjectsFromArray:self.completedTasks] arrayByAddingObjectsFromArray:self.failedTasks];
     [NSKeyedArchiver archiveRootObject:allTasks toFile:[self queueFilePath]];
 }
 
 - (void)loadQueue {
     NSArray *loaded = [NSKeyedUnarchiver unarchiveObjectWithFile:[self queueFilePath]];
     if (loaded) {
-        [self.queue removeAllObjects];
-        [self.completedTasks removeAllObjects];
-        [self.failedTasks removeAllObjects];
+        [_queue removeAllObjects];
+        [_completedTasks removeAllObjects];
+        [_failedTasks removeAllObjects];
         for (DownloadTask *task in loaded) {
             if (task.status == DownloadStatusCompleted) {
-                [self.completedTasks addObject:task];
+                [_completedTasks addObject:task];
             } else if (task.status == DownloadStatusFailed) {
-                [self.failedTasks addObject:task];
+                [_failedTasks addObject:task];
             } else {
-                [self.queue addObject:task];
+                [_queue addObject:task];
             }
         }
     }
@@ -66,7 +66,7 @@
 
 - (void)processNextTask {
     if (self.isProcessing) return;
-    if ([self.queue count] == 0) {
+    if ([_queue count] == 0) {
         self.isProcessing = NO;
         if (self.backgroundTask != UIBackgroundTaskInvalid) {
             [[UIApplication sharedApplication] endBackgroundTask:self.backgroundTask];
@@ -78,58 +78,58 @@
     self.backgroundTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
         [self cancelAllActiveConnections];
     }];
-    DownloadTask *task = [self.queue objectAtIndex:0];
+    DownloadTask *task = [_queue objectAtIndex:0];
     if (task.status == DownloadStatusFailed && task.retryCount < task.maxRetries) {
         task.status = DownloadStatusPending;
         task.retryCount = 0;
     }
-    [self.queue removeObjectAtIndex:0];
+    [_queue removeObjectAtIndex:0];
     [self saveQueue];
     task.delegate = self;
     [task startDownload];
 }
 
 - (void)cancelAllActiveConnections {
-    for (DownloadTask *task in [self.queue copy]) {
+    for (DownloadTask *task in [_queue copy]) {
         [task cancel];
     }
-    for (DownloadTask *task in [self.completedTasks copy]) {
+    for (DownloadTask *task in [_completedTasks copy]) {
         [task cancel];
     }
-    for (DownloadTask *task in [self.failedTasks copy]) {
+    for (DownloadTask *task in [_failedTasks copy]) {
         [task cancel];
     }
 }
 
 - (void)addTask:(DownloadTask *)task {
-    task.taskID = [self.queue count] + [self.completedTasks count] + 1;
+    task.taskID = [_queue count] + [_completedTasks count] + 1;
     task.createdAt = [NSDate date];
     task.status = DownloadStatusPending;
-    [self.queue addObject:task];
+    [_queue addObject:task];
     [self saveQueue];
     [self resumeQueuedDownloads];
 }
 
 - (void)cancelTask:(DownloadTask *)task {
     [task cancel];
-    [self.queue removeObject:task];
-    [self.completedTasks removeObject:task];
-    [self.failedTasks addObject:task];
+    [_queue removeObject:task];
+    [_completedTasks removeObject:task];
+    [_failedTasks addObject:task];
     [self saveQueue];
 }
 
 - (void)removeTask:(DownloadTask *)task {
-    [self.queue removeObject:task];
-    [self.completedTasks removeObject:task];
-    [self.failedTasks removeObject:task];
+    [_queue removeObject:task];
+    [_completedTasks removeObject:task];
+    [_failedTasks removeObject:task];
     [self saveQueue];
 }
 
 - (NSArray *)allTasks {
     NSMutableArray *all = [NSMutableArray array];
-    [all addObjectsFromArray:self.queue];
-    [all addObjectsFromArray:self.completedTasks];
-    [all addObjectsFromArray:self.failedTasks];
+    [all addObjectsFromArray:_queue];
+    [all addObjectsFromArray:_completedTasks];
+    [all addObjectsFromArray:_failedTasks];
     return all;
 }
 
@@ -185,11 +185,11 @@
 }
 
 - (NSInteger)queueCount {
-    return [self.queue count] + [self.activeTasks count];
+    return [_queue count] + [self.activeTasks count];
 }
 
 - (NSInteger)completedCount {
-    return [self.completedTasks count];
+    return [_completedTasks count];
 }
 
 #pragma mark - DownloadDelegateProtocol
@@ -200,16 +200,16 @@
 }
 
 - (void)downloadTaskDidComplete:(DownloadTask *)task {
-    [self.queue removeObject:task];
-    [self.completedTasks addObject:task];
+    [_queue removeObject:task];
+    [_completedTasks addObject:task];
     [self saveQueue];
     [[NSNotificationCenter defaultCenter] postNotificationName:@"TouchXKCDDownloadCompleted" object:task];
     [self processNextTask];
 }
 
 - (void)downloadTaskDidFail:(DownloadTask *)task {
-    [self.queue removeObject:task];
-    [self.failedTasks addObject:task];
+    [_queue removeObject:task];
+    [_failedTasks addObject:task];
     [self saveQueue];
     [[NSNotificationCenter defaultCenter] postNotificationName:@"TouchXKCDDownloadFailed" object:task];
     [self processNextTask];

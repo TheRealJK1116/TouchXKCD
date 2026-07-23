@@ -43,7 +43,7 @@
 @property (nonatomic, strong) NSURLConnection *connection;
 @property (nonatomic, strong) NSMutableData *responseData;
 @property (nonatomic, assign) NSInteger pendingComicNumber;
-@property (nonatomic, weak) id<ExplanationProviderDelegate> pendingDelegate;
+@property (nonatomic, assign) id<ExplanationProviderDelegate> pendingDelegate;
 @property (nonatomic, strong) ExplanationParserStrategy *parserStrategy;
 @end
 
@@ -71,7 +71,7 @@
     // Fetch explanation from XKCD Explain endpoint
     NSString *urlString = [NSString stringWithFormat:@"https://explainxkcd.com/%ld", (long)comicNumber];
     NSURL *url = [NSURL URLWithString:urlString];
-    NSURLRequest *request = [NSURLRequest requestWithURL:url URLCachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30.0];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30.0];
     [request setValue:@"TouchXKCD/1.0 (iPod touch; iOS 6.1.6)" forHTTPHeaderField:@"User-Agent"];
     self.connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO];
     if (self.connection) {
