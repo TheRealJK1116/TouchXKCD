@@ -7,6 +7,22 @@
 
 @interface SettingsViewController ()
 @property (nonatomic, strong) NSArray *sectionTitles;
+#pragma mark - UIAlertViewDelegate
+
+- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (buttonIndex == 1) {
+        UITextField *textField = [alertView textFieldAtIndex:0];
+        NSString *text = textField.text;
+        NSInteger size = [text intValue];
+        if (size > 0) {
+            Settings *settings = [[SettingsManager sharedInstance] currentSettings];
+            settings.maxCacheSize = size;
+            [[SettingsManager sharedInstance] updateSetting:@"maxCacheSize" value:@(size)];
+            [self.tableView reloadData];
+        }
+    }
+}
+
 @end
 
 @implementation SettingsViewController
@@ -117,11 +133,31 @@
             UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Cache Cleared" message:@"Explanation cache cleared." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
             [alert show];
         }
+    } else if (indexPath.section == 2 && indexPath.row == 0) {
+        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Cache Size" message:@"Enter max cache size (comics):" delegate:self cancelButtonTitle:@"Cancel" otherButtonTitles:@"Set", nil];
+        alert.alertViewStyle = UIAlertViewStylePlainTextInput;
+        [alert show];
     } else if (indexPath.section == 3 && indexPath.row == 0) {
         UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"TouchXKCD v1.0" message:@"The definitive XKCD application for legacy iOS devices.\nBuilt for iPod touch 4G / iOS 6.1.6.\nNo Swift. No modern APIs. Pure native feel." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
         [alert show];
     }
     [self.tableView reloadData];
+}
+
+#pragma mark - UIAlertViewDelegate
+
+- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (buttonIndex == 1) {
+        UITextField *textField = [alertView textFieldAtIndex:0];
+        NSString *text = textField.text;
+        NSInteger size = [text intValue];
+        if (size > 0) {
+            Settings *settings = [[SettingsManager sharedInstance] currentSettings];
+            settings.maxCacheSize = size;
+            [[SettingsManager sharedInstance] updateSetting:@"maxCacheSize" value:@(size)];
+            [self.tableView reloadData];
+        }
+    }
 }
 
 @end
