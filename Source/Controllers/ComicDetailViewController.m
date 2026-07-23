@@ -1,4 +1,7 @@
 #import "ComicDetailViewController.h"
+#import <QuartzCore/QuartzCore.h>
+#import "Models/Comic.h"
+#import "Models/Explanation.h"
 #import "Managers/ComicManager.h"
 #import "Managers/ImageCache.h"
 #import "Managers/ImageDownloader.h"
