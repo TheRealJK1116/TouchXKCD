@@ -4,7 +4,7 @@
 @interface ImageRequestInfo : NSObject
 @property (nonatomic, strong) NSMutableData *data;
 @property (nonatomic, strong) NSString *urlString;
-@property (nonatomic, weak) id<ImageDownloaderDelegate> delegate;
+@property (nonatomic, assign) id<ImageDownloaderDelegate> delegate;
 @end
 
 @implementation ImageRequestInfo
@@ -59,7 +59,7 @@
     }
 
     NSURL *url = [NSURL URLWithString:urlString];
-    NSURLRequest *request = [NSURLRequest requestWithURL:url URLCachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30.0];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30.0];
     [request setValue:@"TouchXKCD/1.0 (iPod touch; iOS 6.1.6)" forHTTPHeaderField:@"User-Agent"];
     NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO];
     if (connection) {
